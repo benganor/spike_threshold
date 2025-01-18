@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Data Spike Threshold Visualizer</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+        }
+        #chart-container {
+            width: 90%;
+            margin: 0 auto;
+            position: relative;
+        }
+        #mean-spike-chart-container {
+            width: 90%;
+            margin-top: 30px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <h1>Neural Spike Threshold Visualizer</h1>
+    <p>Use the slider to adjust the threshold level (as a multiple of the standard deviation) and see how spikes are detected. You can also upload your own waveform data in CSV format. A 300 Hz high-pass filter is applied to the data.</p>
+    <label for="threshold">Threshold Multiplier: <span id="threshold-value">0</span></label>
+    <input type="range" id="threshold" min="0" max="10" step="0.1" value="6">
+    <br><br>
+    <p>Number of spikes detected: <span id="spike-count">0</span></p>
+
+    <input type="file" id="upload" accept=".csv">
+
+    <div id="chart-container">
+        <canvas id="waveformChart"></canvas>
+    </div>
+
+    <div id="mean-spike-chart-container">
+        <canvas id="averageSpikeChart"></canvas>
+    </div>
+
+    <script>
+        let waveform = [];
+        const sampleRate = 30000; // Fixed sample rate of 30 kHz
+        const cutoffFrequency = 300; // High-pass filter cutoff frequency in Hz
+
+        // Initialize Chart.js for waveform
+        const ctxWaveform = document.getElementById('waveformChart').getContext('2d');
+        const chartWaveform = new Chart(ctxWaveform, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Waveform',
+                        data: [],
+                        borderColor: 'blue',
+                        pointRadius: 0,
+                        borderWidth: 1,
+                    },
+                    {
+                        label: 'Detected Spikes',
+                        data: [],
+                        type: 'scatter',
+                        backgroundColor: 'red',
+                        pointRadius: 5,
+                    },
+                    {
+                        label: 'Threshold Line',
+                        data: [],
+                        borderColor: 'orange',
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        borderWidth: 1,
+                        type: 'line',
+                    },
+                ],
+            },
+            options: {
+                scales: {
+                    x: {
+                        type: 'linear',
+                        title: {
+                            display: true,
+                            text: 'Time (s)',
+                        },
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Amplitude',
+                        },
+                    },
+                },
+            },
+        });
+
+        // Initialize Chart.js for average spike waveform
+        const ctxAvgSpike = document.getElementById('averageSpikeChart').getContext('2d');
+        const chartAvgSpike = new Chart(ctxAvgSpike, {
+            type: 'line',
+            data: {
+                labels: Array.from({ length: 30 }, (_, i) => i / sampleRate),
+                datasets: [
+                    {
+                        label: 'Random Spike Waveforms',
+                        data: [],
+                        borderColor: 'lightgray',
+                        pointRadius: 0,
+                        borderWidth: 1,
+                        fill: false,
+                    },
+                    {
+                        label: 'Average Spike Waveform',
+                        data: [],
+                        borderColor: 'green',
+                        pointRadius: 0,
+                        borderWidth: 2,
+                    },
+                ],
+            },
+            options: {
+                plugins: {
+                    legend: {
+                        display: true,
+                    },
+                },
+                scales: {
+                    x: {
+                        type: 'linear',
+                        title: {
+                            display: true,
+                            text: 'Time (ms)',
+                        },
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Amplitude',
+                        },
+                    },
+                },
+            },
+        });
+
+        const thresholdInput = document.getElementById('threshold');
+        const thresholdValue = document.getElementById('threshold-value');
+        const uploadInput = document.getElementById('upload');
+
+        function updateSpikes() {
+
+    chartAvgSpike.data.datasets.forEach(dataset => dataset.data = []);
+    chartAvgSpike.update();
+
+    const multiplier = parseFloat(thresholdInput.value);
+    thresholdValue.textContent = multiplier.toFixed(1);
+
+    const stdDev = Math.sqrt(waveform.reduce((sum, val) => sum + val * val, 0) / waveform.length);
+    const threshold = multiplier * stdDev;
+
+    const detectedSpikes = [];
+    const spikeWindow = 30; // Number of samples to check around a detected minimum
+
+    for (let i = 1; i < waveform.length - 1; i++) {
+        if (
+            waveform[i] < -threshold &&
+            waveform[i] < waveform[i - 1] &&
+            waveform[i] < waveform[i + 1]
+        ) {
+            detectedSpikes.push({ x: i / sampleRate, y: waveform[i] });
+        }
+    }
+
+    
+    
+    // Update the chart
+    chartWaveform.data.datasets[1].data = detectedSpikes;
+    chartWaveform.data.datasets[2].data = [
+        { x: 0, y: -threshold },
+        { x: waveform.length / sampleRate, y: -threshold },
+    ];
+
+    // Calculate spike waveforms
+    const spikeWaveforms = detectedSpikes.map(spike => {
+        const spikeIndex = Math.floor(spike.x * sampleRate);
+        const start = Math.max(spikeIndex - 10, 0);
+        const end = Math.min(spikeIndex + 20, waveform.length);
+        return waveform.slice(start, end);
+    });
+
+    const randomSpikes = spikeWaveforms.slice(0, 1000); // Limit to 10 random spikes
+
+    // Average spike waveform
+    const avgWaveform = Array.from({ length: 30 }, (_, i) => {
+        const sum = spikeWaveforms.reduce((acc, wf) => acc + (wf[i] || 0), 0);
+        return sum / (spikeWaveforms.length || 1);
+    });
+
+
+    // Update the average spike chart
+    chartAvgSpike.data.datasets[1].data = avgWaveform.map((value, i) => ({ x: i / sampleRate * 1000, y: value }));
+  
+// Remove existing random spike datasets before adding new ones
+chartAvgSpike.data.datasets = chartAvgSpike.data.datasets.filter(
+    dataset => dataset.label !== 'Random Spike Waveform'
+);
+
+// Add each random spike as its own dataset
+randomSpikes.forEach((spike, idx) => {
+    chartAvgSpike.data.datasets.push({
+        label: `Random Spike Waveform ${idx + 1}`,
+        data: spike.map((value, i) => ({
+            x: i / sampleRate * 1000, // Center around the spike
+            y: value,
+        })),
+        borderColor: 'lightgray',
+        pointRadius: 0,
+        borderWidth: 1,
+        fill: false,
+    });
+});
+
+chartAvgSpike.options.plugins.legend.display = false;
+
+// Add the average spike waveform dataset as usual
+chartAvgSpike.data.datasets.push({
+    label: 'Average Spike Waveform',
+    data: avgWaveform.map((value, i) => ({
+        x: i / sampleRate * 1000,
+        y: value,
+    })),
+    borderColor: 'green',
+    pointRadius: 0,
+    borderWidth: 2,
+});
+
+
+
+    // Update spike count
+    document.getElementById('spike-count').textContent = detectedSpikes.length;
+
+    // Update charts
+    chartWaveform.update();
+    chartAvgSpike.update();
+}
+
+        function applyHighPassFilter(data) {
+            const RC = 1 / (2 * Math.PI * cutoffFrequency);
+            const dt = 1 / sampleRate;
+            const alpha = RC / (RC + dt);
+
+            const filteredData = [];
+            filteredData[0] = data[0]; // Initialize with the first data point
+            for (let i = 1; i < data.length; i++) {
+                filteredData[i] = alpha * (filteredData[i - 1] + data[i] - data[i - 1]);
+            }
+
+            // Remove the first 100 samples to discard the artifact
+            return filteredData.slice(100);
+        }
+
+        function loadCSV(fileContent) {
+            try {
+                const rows = fileContent.split('\n');
+                let rawData = rows.map(row => parseFloat(row.trim())).filter(value => !isNaN(value));
+
+                if (rawData.length === 0) {
+                    alert('No valid data found in the CSV file.');
+                    return;
+                }
+
+                waveform = applyHighPassFilter(rawData);
+
+                chartWaveform.data.labels = Array.from({ length: waveform.length }, (_, i) => i / sampleRate);
+                chartWaveform.data.datasets[0].data = waveform;
+
+                updateSpikes();
+            } catch (error) {
+                alert('Failed to load waveform data. Please check the file format.');
+            }
+        }
+
+        uploadInput.addEventListener('change', event => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = e => loadCSV(e.target.result);
+
+            reader.readAsText(file);
+        });
+
+        thresholdInput.addEventListener('input', updateSpikes);
+    </script>
+</body>
+</html>
