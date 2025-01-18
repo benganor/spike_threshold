@@ -36,6 +36,7 @@
     <br><br>
     <p>Number of spikes detected: <span id="spike-count">0</span></p>
 
+    <button id="load-data-btn">Load Example Data</button>
     <input type="file" id="upload" accept=".csv">
 
     <div id="chart-container">
@@ -47,6 +48,27 @@
     </div>
 
     <script>
+
+            // Replace with the URL of your online CSV file
+    const dataUrl = 'https://benganor.github.io/spike_threshold/example_neural_waveform.csv';
+    
+    document.getElementById('load-data-btn').addEventListener('click', () => {
+        fetch(dataUrl)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.text();
+            })
+            .then(csvContent => {
+                loadCSV(csvContent); // Reuse the existing function to process CSV
+            })
+            .catch(error => {
+                alert('Failed to load data: ' + error.message);
+            });
+    });
+
+        
         let waveform = [];
         const sampleRate = 30000; // Fixed sample rate of 30 kHz
         const cutoffFrequency = 300; // High-pass filter cutoff frequency in Hz
@@ -266,6 +288,7 @@ chartAvgSpike.data.datasets.push({
             return filteredData.slice(100);
         }
 
+        
         function loadCSV(fileContent) {
             try {
                 const rows = fileContent.split('\n');
